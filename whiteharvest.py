@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# Analyze the alignment of r/Christianity
 from __future__ import division, print_function
 
 import CairoPlot
