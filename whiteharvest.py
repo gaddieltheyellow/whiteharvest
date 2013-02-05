@@ -79,11 +79,17 @@ def update(username, password, db):
     min_timestamp = max_timestamp - a_day
     if db['threads']:
         min_timestamp = max(x['created_utc'] for x in db['threads'].values())
+
+    threads = []
     for thread in rChristianity.get_new_by_date(limit=None):
         if thread.created_utc >= max_timestamp:
             continue
         if thread.created_utc <= min_timestamp:
             break
+        threads.append(thread)
+
+    print('%d thread(s) to read.' % len(threads))
+    for thread in reversed(threads):
         print('adding %s...' % thread.title)
         comments = parse_comments(thread.comments)
         author = ''
@@ -107,14 +113,14 @@ def aligned_karma(db, user, flair, ups, downs):
     lower_flairs = dict((k.lower(), v) for k, v in db['flairs'].items())
     alignment = lower_users.get((user or '').lower())
     if alignment is None:
-        if user is not None:
+        if user:
             print('Consider adding user', user, file=sys.stderr)
         alignment = lower_flairs.get((flair or '').lower())
     if alignment == 1:
         return (ups, downs)
     if alignment == -1:
         return (downs, ups)
-    if alignment != 0 and flair is not None:
+    if alignment != 0 and flair:
         print('Consider adding flair', flair, file=sys.stderr)
     return (0, 0)
 
@@ -202,7 +208,7 @@ def main():
         count = 0
         for db in update(username, password, db):
             count += 1
-            if count % 5 == 0:
+            if count % 10 == 0:
                 write_db(db, db_file)
         write_db(db, db_file)
     elif args.action == 'setuser':
