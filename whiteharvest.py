@@ -4,7 +4,9 @@ Analyze the alignment of r/Christianity
 """
 from __future__ import division, print_function
 
-import CairoPlot
+import matplotlib
+matplotlib.use("Agg")
+
 import argparse
 import collections
 import datetime
@@ -14,6 +16,7 @@ import math
 import operator
 import os
 import praw
+import pylab
 import time
 import random
 import string
@@ -144,6 +147,70 @@ def aligned_karma(db, user, flair, ups, downs):
     return (0, 0)
 
 
+def plot_trend(date_map, filename):
+    x_data = []
+    y_data = []
+    for date in sorted(date_map):
+        data = date_map[date]
+        x_data.append(date)
+        y_data.append(data['total'])
+        
+    fig = pylab.figure(figsize=(9, 6), dpi=80, facecolor='#ffffff', edgecolor='#333333')
+    fig.autofmt_xdate()
+    pylab.grid(True)
+    x_vals = pylab.np.array(list(range(len(x_data))))
+    y_vals = pylab.np.array(y_data)
+    pylab.plot(x_vals, y_vals, color='#555555', alpha=1.00)
+    pylab.fill_between(x_vals, y_vals, 0, where=y_vals>0, color='#5555ff',
+                       alpha=.25, interpolate=True)
+    pylab.fill_between(x_vals, y_vals, 0, where=y_vals<0, color='#ff5555',
+                       alpha=.25, interpolate=True)
+    
+    pylab.xlim(0, len(x_data) - 1)
+    sep = int(len(x_vals) / 10)
+    ran = list(range(0, len(x_vals), sep))
+    pylab.xticks([x_vals[i] for i in ran], [x_data[i] for i in ran], rotation=45, ha='right')
+    pylab.ylim(-100, 100)
+    pylab.yticks(range(-100, 101, 25))
+    pylab.text(len(x_vals) - 2, 87, '/r/Christianity alignment', ha='right',
+               va='center', color="#333333", alpha=.55, fontsize=16)
+    pylab.savefig(filename)
+
+
+def plot_weekday(date_map, filename):
+    x_data = []
+    y_data = []
+    c_data = []
+    for data in date_map.values():
+        x_data.append(data['weekday'])
+        y_data.append(data['total'])
+        b = int((255 - 85) * float(data['total'] + 100) / 200)
+        r = (255 - 85) - b
+        c_data.append('#%s55%s' % (hex(85 + r)[2:], hex(85 + b)[2:]))
+
+    days = [
+        'Sunday',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+    ]
+    fig = pylab.figure(figsize=(9, 6), dpi=80, facecolor='#ffffff', edgecolor='#333333')
+    pylab.subplots_adjust(bottom=0.15)
+    pylab.scatter(x_data, y_data, s=75, c=c_data, alpha=.5)
+    pylab.grid(True)
+    
+    pylab.xlim(-1, 7)
+    pylab.xticks(range(7), days, rotation=45, ha='right')
+    pylab.ylim(-100, 100)
+    pylab.yticks(range(-100, 101, 25))
+    pylab.text(6.5, 87, '/r/Christianity alignment', ha='right',
+               va='center', color="#333333", alpha=.55, fontsize=16)
+    pylab.savefig(filename)
+
+
 def plot(db):
     alignments = collections.defaultdict(lambda: (0, 0))
     for thread in db['threads'].values():
@@ -162,34 +229,18 @@ def plot(db):
 
     h_labels = []
     data = []
+    date_map = {}
     for date, alignment in sorted(alignments.items()):
-        h_labels.append(date.strftime('%Y-%m-%d'))
-        # Should not need float here since we are using the __future__ division
-        # but it seems we do anyway.
         percent = alignment[0] / sum(alignment)
-        data.append((200 * percent) - 100)
+        date_map[date.strftime('%Y-%m-%d')] = {
+            'total': (200 * percent) - 100,
+            'weekday': (date.weekday() + 1) % 7,
+        }
     # Don't include the first or last day
-    data = data[1:-1]
-    h_labels = h_labels[1:-1]
-
-    try:
-        CairoPlot.dot_line_plot('rChristianity',
-                                data,
-                                width=800,
-                                height=400,
-                                background=None,
-                                border=5,
-                                axis=True,
-                                grid=True,
-                                dots=False,
-                                h_labels=h_labels,
-                                v_labels=None,
-                                h_bounds=None,
-                                v_bounds=(-100, 100))
-    except ZeroDivisionError:
-        print('CairoPlot is stupid and tried to divide by 0.', file=sys.stdout)
-    else:
-        print('rChristianity.svg created')
+    del date_map[max(date_map)]
+    del date_map[min(date_map)]
+    plot_trend(date_map, 'trend.png')
+    plot_weekday(date_map, 'weekday.png')
 
 
 def main():
@@ -225,7 +276,7 @@ def main():
             if filename == 'users.json':
                 db['users'] = data
             elif filename == 'flairs.json':
-                db['users'] = data
+                db['flairs'] = data
             else:
                 db['threads'].update(data)
     except OSError:
