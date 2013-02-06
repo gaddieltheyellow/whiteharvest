@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-# Analyze the alignment of r/Christianity
+"""
+Analyze the alignment of r/Christianity
+"""
 from __future__ import division, print_function
 
 import CairoPlot
@@ -18,10 +20,27 @@ import string
 import sys
 
 
-def write_db(db, db_file):
+def write_db(data, db_file):
     f = open(db_file, 'w')
-    json.dump(db, f, indent=2)
+    json.dump(data, f, indent=2)
     f.close()
+
+
+def write_threads(new_threads, old_threads, db_dir):
+    date_map = collections.defaultdict(dict)
+    for name, data in new_threads.items():
+        if name not in old_threads:
+            date = datetime.date.fromtimestamp(data['created_utc'])
+            date_map[date][name] = data
+    for date, data in date_map.items():
+        date_str = date.strftime('%Y-%m-%d')
+        db_file = os.path.join(db_dir, '%s.json' % date_str)
+        try:
+            db = json.load(open(db_file))
+        except IOError:
+            db = {}
+        db.update(data)
+        write_db(db, db_file)
 
 
 def ensure_username_password(username, password):
@@ -175,7 +194,8 @@ def plot(db):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', help='[update|setuser|setflair|listusers|listflairs|plot]')
+    parser.add_argument('action', help='[update|setuser|setflair|'
+                                       'listusers|listflairs|plot]')
     parser.add_argument("--username",
                         help="your username")
     parser.add_argument("--password",
@@ -187,15 +207,27 @@ def main():
     args = parser.parse_args()
 
     home = os.path.expanduser('~')
-    db_file = os.path.join(home, '.whiteharvest')
+    db_dir = os.path.join(home, '.whiteharvest')
+    user_file = os.path.join(db_dir, 'users.json')
+    flair_file = os.path.join(db_dir, 'flairs.json')
 
+    # TODO: don't always load up the whole db
     db = {
         'threads': {},
         'users': {},
         'flair': {},
     }
     try:
-        db = json.load(open(db_file))
+        db['users'] = json.load(open(user_file))
+        db['flairs'] = json.load(open(flair_file))
+        for filename in os.listdir(db_dir):
+            data = json.load(open(os.path.join(db_dir, filename)))
+            if filename == 'users.json':
+                db['users'] = data
+            elif filename == 'flairs.json':
+                db['users'] = data
+            else:
+                db['threads'].update(data)
     except OSError:
         pass
     except ValueError:
@@ -205,20 +237,20 @@ def main():
     if args.action == 'update':
         username, password = ensure_username_password(args.username,
                                                       args.password)
-        count = 0
-        for db in update(username, password, db):
-            count += 1
-            if count % 10 == 0:
-                write_db(db, db_file)
-        write_db(db, db_file)
+        old_threads = dict(db['threads'])
+        for i, db in enumerate(update(username, password, db)):
+            if i % 10 == 0:
+                write_threads(db['threads'], old_threads, db_dir)
+                old_threads = dict(db['threads'])
+        write_threads(db['threads'], old_threads, db_dir)
     elif args.action == 'setuser':
         key, value = ensure_key_value(args.key, args.value)
         db['users'][key] = int(value)
-        write_db(db, db_file)
+        write_db(db['users'], user_file)
     elif args.action == 'setflair':
         key, value = ensure_key_value(args.key, args.value)
         db['flairs'][key] = int(value)
-        write_db(db, db_file)
+        write_db(db['flairs'], flair_file)
     elif args.action == 'listusers':
         for user, value in sorted(db['users'].items()):
             print(user, value)
