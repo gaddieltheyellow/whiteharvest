@@ -12,7 +12,6 @@ import collections
 import datetime
 import getpass
 import json
-import math
 import operator
 import os
 import praw
@@ -177,16 +176,56 @@ def plot_trend(date_map, filename):
     pylab.savefig(filename)
 
 
+def split_color(color_str):
+    r, g, b = color_str[1:3], color_str[3:5], color_str[5:7]
+    return int('0x' + r, 0), int('0x' + g, 0), int('0x' + b, 0)
+
+
+def create_color(r, g, b):
+    r_str = hex(r).replace('x', '0')[-2:]
+    g_str = hex(g).replace('x', '0')[-2:]
+    b_str = hex(b).replace('x', '0')[-2:]
+    return '#%s%s%s' % (r_str, g_str, b_str)
+
+
+def spectrum(color1, color2, val):
+    r1, g1, b1 = split_color(color1)
+    r2, g2, b2 = split_color(color2)
+    r = r1 + int((r2 - r1) * val)
+    g = g1 + int((g2 - g1) * val)
+    b = b1 + int((b2 - b1) * val)
+    return create_color(r, g, b)
+
+
 def plot_weekday(date_map, filename):
+    blue = '#4213d1'
+    red = '#d11320'
     x_data = []
     y_data = []
     c_data = []
+    x_data_scaled = []
+    y_data_scaled = []
+    c_data_scaled = []
+    y_ave = [[] for x in range(7)]
+    c_ave = [0 for x in range(7)]
     for data in date_map.values():
         x_data.append(data['weekday'])
         y_data.append(data['total'])
-        b = int((255 - 85) * float(data['total'] + 100) / 200)
-        r = (255 - 85) - b
-        c_data.append('#%s55%s' % (hex(85 + r)[2:], hex(85 + b)[2:]))
+        c_data.append(spectrum(
+                red, blue,
+                float(data['total'] + 100) / 200))
+        if 'scaled_weekday' in data:
+            x_data_scaled.append(data['weekday'])
+            y_data_scaled.append(data['scaled_weekday'])
+            c_data_scaled.append(spectrum(
+                    red, blue,
+                    float(data['scaled_weekday'] + 100) / 200))
+            y_ave[data['weekday']].append(data['scaled_weekday'])
+
+    for i, data in enumerate(y_ave):
+        y_ave[i] = pylab.np.mean(data)
+        c_ave[i] = spectrum(red, blue,
+                            float(y_ave[i] + 100) / 200)
 
     days = [
         'Sunday',
@@ -199,7 +238,9 @@ def plot_weekday(date_map, filename):
     ]
     fig = pylab.figure(figsize=(9, 6), dpi=80, facecolor='#ffffff', edgecolor='#333333')
     pylab.subplots_adjust(bottom=0.15)
-    pylab.scatter(x_data, y_data, s=75, c=c_data, alpha=.5)
+    pylab.scatter(x_data, y_data, s=20, c=c_data, alpha=.5)
+    pylab.scatter(x_data_scaled, y_data_scaled, s=75, c=c_data_scaled, alpha=.5)
+    pylab.scatter(range(7), y_ave, s=300, c=c_ave, alpha=.7)
     pylab.grid(True)
     
     pylab.xlim(-1, 7)
@@ -227,18 +268,39 @@ def plot(db):
             alignments[date] = tuple(map(operator.add,
                                          alignments[date], alignment))
 
+    # Don't include the first or last day
+    del alignments[max(alignments)]
+    del alignments[min(alignments)]
+
     h_labels = []
     data = []
     date_map = {}
+    week_map = collections.defaultdict(list)
     for date, alignment in sorted(alignments.items()):
         percent = alignment[0] / sum(alignment)
+        total = (200 * percent) - 100
+        weekday = (date.weekday() + 1) % 7
+        sunday = date - datetime.timedelta(days=weekday)
         date_map[date.strftime('%Y-%m-%d')] = {
-            'total': (200 * percent) - 100,
-            'weekday': (date.weekday() + 1) % 7,
+            'total': total,
+            'weekday': weekday,
         }
-    # Don't include the first or last day
-    del date_map[max(date_map)]
-    del date_map[min(date_map)]
+        week_map[sunday.strftime('%Y-%m-%d')].append(total)
+    for date, alignment in sorted(alignments.items()):
+        weekday = (date.weekday() + 1) % 7
+        sunday = date - datetime.timedelta(days=weekday)
+        week = week_map[sunday.strftime('%Y-%m-%d')]
+        if len(week) < 4:
+            continue
+        max_align = max(week)
+        min_align = min(week)
+        diff = max_align - min_align
+        total = date_map[date.strftime('%Y-%m-%d')]['total']
+        percent = .5
+        if diff != 0:
+            percent = float(total - min_align) / diff
+        scaled_weekday = (200 * percent) - 100
+        date_map[date.strftime('%Y-%m-%d')]['scaled_weekday'] = scaled_weekday
     plot_trend(date_map, 'trend.png')
     plot_weekday(date_map, 'weekday.png')
 
