@@ -4,14 +4,16 @@ Analyze the alignment of r/Christianity
 """
 from __future__ import division, print_function
 
+# Headless hack
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use('Agg')
 
 import argparse
 import collections
 import datetime
 import getpass
 import json
+import netrc
 import operator
 import os
 import praw
@@ -46,6 +48,14 @@ def write_threads(new_threads, old_threads, db_dir):
 
 
 def ensure_username_password(username, password):
+    if not username and not password:
+        try:
+            hosts = netrc.netrc().hosts
+        except netrc.NetrcParseError:
+            pass
+        else:
+            default = None, None, None
+            username, _, password = hosts.get('reddit.com', default)
     if not username:
         username = raw_input('username: ')
     if not password:
@@ -83,6 +93,14 @@ def parse_comments(comments):
     return ret
 
 
+def safe_string(text):
+    try:
+        str(text)
+    except UnicodeEncodeError:
+        return text.encode('ascii', 'ignore')
+    return text
+
+
 def update(username, password, db):
     # Create the reddit object
     characters = string.ascii_lowercase + string.ascii_uppercase + string.digits
@@ -111,7 +129,8 @@ def update(username, password, db):
 
     print('%d thread(s) to read.' % len(threads))
     for thread in reversed(threads):
-        print('adding %s...' % thread.title)
+        title = safe_string(thread.title)
+        print('adding %s...' % title)
         comments = parse_comments(thread.comments)
         author = ''
         if thread.author:
@@ -123,7 +142,7 @@ def update(username, password, db):
             'created_utc': thread.created_utc,
             'downs': thread.downs,
             'selftext': thread.selftext,
-            'title': thread.title,
+            'title': title,
             'ups': thread.ups,
         }
         yield db
@@ -208,12 +227,14 @@ def plot_weekday(date_map, filename):
     c_data_scaled = []
     y_ave = [[] for x in range(7)]
     c_ave = [0 for x in range(7)]
+    norm_ave = [[] for x in range(7)]
     for data in date_map.values():
         x_data.append(data['weekday'])
         y_data.append(data['total'])
         c_data.append(spectrum(
                 red, blue,
                 float(data['total'] + 100) / 200))
+        norm_ave[data['weekday']].append((data['total'] + 100) / 200)
         if 'scaled_weekday' in data:
             x_data_scaled.append(data['weekday'])
             y_data_scaled.append(data['scaled_weekday'])
@@ -222,10 +243,18 @@ def plot_weekday(date_map, filename):
                     float(data['scaled_weekday'] + 100) / 200))
             y_ave[data['weekday']].append(data['scaled_weekday'])
 
-    for i, data in enumerate(y_ave):
-        y_ave[i] = pylab.np.mean(data)
+    for i in range(7):
+        norm_ave[i] = pylab.np.mean(norm_ave[i])
+        y_ave[i] = pylab.np.mean(y_ave[i])
         c_ave[i] = spectrum(red, blue,
                             float(y_ave[i] + 100) / 200)
+
+    pairs = [(val, key) for key, val in enumerate(norm_ave)]
+    max_r_pair = max(pairs)
+    min_r_pair = min(pairs)
+    pairs = [(val, key) for key, val in enumerate(y_ave)]
+    max_a_pair = max(pairs)
+    min_a_pair = min(pairs)
 
     days = [
         'Sunday',
@@ -236,12 +265,26 @@ def plot_weekday(date_map, filename):
         'Friday',
         'Saturday',
     ]
+    diff = ('%0.0f%% more Christian\nthan %ss'
+            % ((max_r_pair[0] / min_r_pair[0]) * 100, days[min_r_pair[1]]))
     fig = pylab.figure(figsize=(9, 6), dpi=80, facecolor='#ffffff', edgecolor='#333333')
     pylab.subplots_adjust(bottom=0.15)
     pylab.scatter(x_data, y_data, s=20, c=c_data, alpha=.5)
     pylab.scatter(x_data_scaled, y_data_scaled, s=75, c=c_data_scaled, alpha=.5)
     pylab.scatter(range(7), y_ave, s=300, c=c_ave, alpha=.7)
     pylab.grid(True)
+
+    
+    min_y_ave = min(y_ave)
+    max_y_ave = max(y_ave)
+    arrowprops=dict(arrowstyle="->",
+                    connectionstyle="arc3,rad=-.3", facecolor='#333333',
+                    edgecolor='#333333')
+    pylab.annotate(diff, xy=(max_a_pair[1] - .07, max_a_pair[0] + 5),
+                   color='#333333',
+                   xytext=(.5, 55), ha='center',
+                   fontsize=12, 
+                   arrowprops=arrowprops)
     
     pylab.xlim(-1, 7)
     pylab.xticks(range(7), days, rotation=45, ha='right')
@@ -262,6 +305,7 @@ def plot(db):
         alignments[date] = tuple(map(operator.add,
                                      alignments[date], alignment))
         for comment in thread['comments'].values():
+            date = datetime.date.fromtimestamp(comment['created_utc'])
             alignment = aligned_karma(db, comment['author'],
                                       comment['author_flair_css_class'],
                                       comment['ups'], comment['downs'])
