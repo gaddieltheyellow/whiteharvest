@@ -266,7 +266,7 @@ def plot_weekday(date_map, filename):
         'Saturday',
     ]
     diff = ('%0.0f%% more Christian\nthan %ss'
-            % ((max_r_pair[0] / min_r_pair[0]) * 100, days[min_r_pair[1]]))
+            % (((max_r_pair[0] / min_r_pair[0]) - 1) * 100, days[min_r_pair[1]]))
     fig = pylab.figure(figsize=(9, 6), dpi=80, facecolor='#ffffff', edgecolor='#333333')
     pylab.subplots_adjust(bottom=0.15)
     pylab.scatter(x_data, y_data, s=20, c=c_data, alpha=.5)
